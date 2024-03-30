@@ -1,0 +1,210 @@
+---
+title: "Homework - Week 5"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: false
+    code-tools: true
+editor: source
+author: Group XXX
+theme: flatly
+execute: 
+  cache: true
+  warning: false
+  message: false
+  fig-width: 9 
+  fig-height: 7
+---
+
+# Homework instructions
+
+Try and recreate some of the analysis done by Rathje et al. (2023) from the homework readings for this week.
+
+
+# Setup
+
+```{r Setup}
+knitr::opts_chunk$set(echo = TRUE)
+p_needed <-
+  c("textdata",
+    "tidyverse", 
+    "tidytext",              # some helpful functions for tidying text
+    "quanteda",              # one of the biggest text data R packages out there
+    "quanteda.textstats",    # some extra functions, e.g. calculating complexity
+    "quanteda.textplots",    # Plots for visualising textual data
+    "sentimentr",            # for advanced sentiment analysis
+    "SnowballC",              # for stemming
+    "openai", "usethis", "caret", #Open AI stuff
+    "here"
+    )
+
+packages <- rownames(installed.packages())
+p_to_install <- p_needed[!(p_needed %in% packages)]
+
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+sapply(p_needed, require, character.only = TRUE)
+```
+
+Load your libraries and data here.
+
+```{r}
+tweets <- read_csv(here("data/donald_tweets.csv"))
+```
+
+# Sentiment Analysis
+
+## Pre-process Data
+
+```{r}
+# Tokenization
+tidy_tweets <- tweets %>% 
+  tidytext::unnest_tokens(sentence, text, token = "sentences") %>% 
+  group_by(id) %>% 
+  mutate(sentence_id = row_number()) %>% 
+  ungroup() %>% 
+  tidytext::unnest_tokens(word, sentence, token = "words", drop = FALSE) %>%
+  anti_join(tidytext::get_stopwords())
+```
+
+## 1. Dictionary Approach
+
+```{r Affin_Dict}
+# Dictionary
+afinn_dic <- tidytext::get_sentiments(lexicon = "afinn")
+
+# Plot
+tidy_tweets %>%   
+  inner_join(afinn_dic) %>% 
+  mutate(date = as.Date(date)) %>%
+  group_by(id, date) %>%
+  summarise(sentiment = sum(value)) %>% 
+  
+  ggplot(aes(date, sentiment)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Trump's Erratic Tweet Pattern",
+       subtitle = "Sentiment of Tweets Over Time",
+       x = "Date", y = "Sentiment") +
+  theme_minimal()
+```
+
+```{r Positive_Negative_Sentiment}
+data_dictionary_LSD2015_pos_neg <- data_dictionary_LSD2015[1:2]
+
+tweets_corpus <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  quanteda::corpus()
+
+# Sentiments about Democrats + Republicans
+democrats <- c("Democrats")
+
+republicans <- c("Republicans")
+
+toks_dem <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(democrats), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_rep <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(republicans), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_dem <- convert(toks_dem, to = "data.frame")
+toks_rep <- convert(toks_rep, to = "data.frame")
+
+toks_dem <- mutate(toks_dem, sentiment_dem = positive-negative)
+
+toks_rep <- mutate(toks_rep, sentiment_rep = positive-negative)
+
+combined <- left_join(toks_dem, toks_rep, by ="doc_id")
+
+combined %>% 
+  mutate(date = as.Date(doc_id)) %>% 
+  select(date, sentiment_dem, sentiment_rep) %>% 
+  pivot_longer(cols = !date, names_to = "party", values_to = "sentiment") %>% 
+  
+  group_by(date, party) %>% 
+
+ggplot(aes(date, sentiment, color = party, group = party)) + 
+  geom_point() +
+  geom_line() + 
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        axis.title = element_text(face="bold", size = 12),
+        legend.position = "bottom",
+        text = element_text(size = 14, family = "serif")) + 
+  labs(title = "Sentiment toward The 'Republican' and 'Democrat' Party",
+       y = "Sentiment (negative - positive)",
+       x = "Time", 
+       color = " ") +
+  scale_color_discrete(labels = c("Democrats", "Republicans"))
+
+```
+
+## 2. chatGPT Approach
+
+```{r}
+# The following code: opens your r environment file
+
+# In here, on a new line, save your openai api key like so:
+# OPENAI_API_KEY = "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"
+usethis::edit_r_environ()
+Sys.getenv("OPENAI_API_KEY")
+```
+
+```{r}
+prompt = list(
+  list(
+    "role" = "system",
+    "content" = r"(First, load the donald_tweets.csv data set into your database.
+    Second, classify the tweets in sentiment as positive, negative, or neutral
+    )"
+  ),
+  list(
+    "role" = "user",
+    "content" = r"(Output either "positive, negative, or neutral" for each row.)")
+)
+```
+
+```{r}
+#| eval: false
+pirate_questions <- create_chat_completion(
+  model = "gpt-3.5-turbo",
+  messages = prompt, # add in the prompt here
+  temperature = 1,
+  top_p = 1,
+  n = 1,
+  stream = FALSE,
+  stop = NULL,
+  max_tokens = 256, # limit output length somewhat, just as a cautionary measure
+  presence_penalty = 0,
+  frequency_penalty = 0,
+  logit_bias = NULL,
+  user = NULL,
+  openai_api_key = Sys.getenv("OPENAI_API_KEY"),
+  openai_organization = NULL
+)
+```
+
+## 3. Manual Approach (by hand)
+
+```{r}
+
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
