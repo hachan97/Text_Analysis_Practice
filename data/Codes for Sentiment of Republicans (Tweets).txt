@@ -1,0 +1,30 @@
+tweets_corpus <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  quanteda::corpus()
+
+# Sentiments about Republicans
+republicans <- c("Republicans", "Biden", "Obama", "Clinton")
+
+toks_republicans <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(republicans), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+  
+plot(toks_republicans$date, 
+     toks_republicans[,"positive"] - toks_republicans[,"negative"], 
+     type = "l", 
+     ylab = "Sentiment", 
+     xlab = "")
+grid()
+abline(h = 0, lty = 2)
+
+
+dat_smooth <- ksmooth(x = toks_republicans$date, 
+                      y = toks_republicans[,"positive"] - toks_republicans[,"negative"],
+                      kernel = "normal", bandwidth = 30)
+plot(dat_smooth$x, dat_smooth$y, type = "l", ylab = "Sentiment", xlab = "")
+grid()
+abline(h = 0, lty = 2)

@@ -1,0 +1,51 @@
+{r Sentiment_Analysis_kwic}
+# Look at words/phrases that are used 'pre' and 'post' of the word "war", allow you look at the 'sentiments' surrounding (pre/post) the word.
+
+tweets_corpus <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  quanteda::corpus()
+
+# Define a function to plot sentiment over time for specific keywords
+plot_sentiment_over_time <- function(keywords, group_name, 
+                                     tweets_corpus, 
+                                     data_dictionary_LSD2015_pos_neg) {
+  toks_keywords <- tweets_corpus %>%
+    tokens(remove_punct = TRUE) %>% 
+    tokens_keep(pattern = phrase(keywords), 
+                window = 10) %>% 
+    tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+    dfm() %>% 
+    dfm_group(groups = date)
+  dat_smooth <- ksmooth(x = toks_keywords$date, 
+                        y = toks_keywords[,"positive"] - toks_keywords[,"negative"],
+                        kernel = "normal", bandwidth = 30)
+  # Create the plot
+  plot(dat_smooth$x, dat_smooth$y, type = "l", 
+       ylab = "Sentiment", xlab = "", 
+       main = paste("Sentiment for", group_name, "Over Time"))
+  abline(h = 0, lty = 2) }
+
+# Sentiments about Republicans
+republicans <- c("Pence", "Romney", "Ted", "Cruz")
+plot_sentiment_over_time(republicans, "Republicans",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Democrats
+democrats <- c("Biden", "Obama", "Clinton", "Bernie")
+plot_sentiment_over_time(democrats, "Democrats",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about The Economy
+economy <- c("Job", "Market", "Tax", "Employment")
+plot_sentiment_over_time(economy, "The Economy",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about News Media
+news_media <- c("CNN", "Mainstream", "Media", "New York")
+plot_sentiment_over_time(news_media, "News Media",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about China
+China <- c("China", "Xi", "Jinping")
+plot_sentiment_over_time(China, "China",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)

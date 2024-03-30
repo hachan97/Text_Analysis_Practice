@@ -1,0 +1,44 @@
+**What is the development of number of tweets over time?**
+```{r}
+tweets %>% 
+  mutate(year = year(date) %>% as.factor()) %>% 
+  group_by(year) %>% 
+  summarise(count_tweet = n()) %>%
+  
+  ggplot(aes(year, count_tweet)) +
+  geom_text(aes(label=count_tweet), vjust=-0.5, size = 3.5) +
+  geom_bar(stat = "identity", fill= "grey") +
+  theme_light() +
+  scale_y_continuous(limits = c(0, 13000), 
+                     breaks = seq(0, 13000, by = 1000), 
+                     expand = c(0, 0)) +
+  theme(panel.grid.major.x = element_blank())
+
+```
+
+
+**What is the development of likes / shares over time?**
+```{r}
+tweets %>% 
+  filter(favorites > 0) %>% # remove tweets eith zero likes - retweets?
+  mutate(year = year(date) %>%  as.factor()) %>% 
+  group_by(year) %>% 
+  summarise(mean_likes = mean(favorites),
+            mean_retweet = mean(retweets)) %>% 
+  
+  pivot_longer(cols = !year, names_to = "popular", values_to = "mean") %>% 
+
+  
+  ggplot(aes(year, mean, color = popular, group=popular)) +
+  geom_line(size=1.5) +
+  scale_color_viridis_d(labels = c("Likes", "Retweet")) + 
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        axis.title = element_text(face="bold", size = 12),
+        legend.position = "bottom",
+        text = element_text(size = 14, family = "serif")) + 
+  labs(title = "Mean likes and retweet by year",
+       y = "Mean",
+       x = "Year", 
+       color = " ")

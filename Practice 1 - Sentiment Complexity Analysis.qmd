@@ -1,0 +1,533 @@
+---
+title: "Homework - Week 3"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: false
+    code-tools: true
+editor: source
+author: Group 2
+theme: flatly
+execute: 
+  cache: true
+  warning: false
+  message: false
+  fig-width: 8 
+  fig-height: 6
+editor_options: 
+  chunk_output_type: inline
+---
+
+# Homework instructions
+
+Explore this dataset about Trump tweets.
+
+Here's some ideas:
+
+-   Sentiment Analysis over time
+
+-   Sentiment Analysis for tweets containing certain **hashtags** / **keywords** (what / whom is trump talking positively about, whom is he talking negatively about?) -
+
+-   Complexity Analysis over time
+
+-   Relationship between Sentiment and Likes/Retweets
+
+Try out some other dictionary style analyses, for instance using the "nrc" **emotion** dictionary, or the **moral** foundations dictionary (<https://osf.io/ezn37/>)
+
+## About the data
+
+This dataset contains 56,671 tweets by Donald Trump. It also holds information about:
+
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| Variables | Description                                                                                                                                 |
++===========+=============================================================================================================================================+
+| isRetweet | whether the tweet is a retweeted tweet                                                                                                      |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| isDeleted | whether the tweet has been deleted                                                                                                          |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| device    | from which device the tweet was sent\                                                                                                       |
+|           | (there is a theory that tweets from **iPhone** come from Trump directly, **other** tweets, like those from TweetDeck are by the Trump team) |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| favorites | number of likes a tweet got                                                                                                                 |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| retweets  | number of retweets the tweet got                                                                                                            |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| date      | date of the tweet                                                                                                                           |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+| isFlagged | a bit unsure what this means, potentially flagged tweets contain misinformation                                                             |
++-----------+---------------------------------------------------------------------------------------------------------------------------------------------+
+
+This data stems from Kaggle: <https://www.kaggle.com/datasets/codebreaker619/donald-trump-tweets-dataset>
+
+# Setup
+
+## Load packages
+
+Add packages you need here...
+
+```{r Setup}
+knitr::opts_chunk$set(echo = TRUE)
+p_needed <-
+  c("textdata",
+    "tidyverse", 
+    "tidytext",              # some helpful functions for tidying text
+    "quanteda",              # one of the biggest text data R packages out there
+    "quanteda.textstats",    # some extra functions, e.g. calculating complexity
+    "quanteda.textplots",    # Plots for visualising textual data
+    "sentimentr",            # for advanced sentiment analysis
+    "SnowballC"              # for stemming
+    )
+
+packages <- rownames(installed.packages())
+p_to_install <- p_needed[!(p_needed %in% packages)]
+
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+sapply(p_needed, require, character.only = TRUE)
+```
+
+## Load data
+
+Specify the correct path depending on your system. Remember to work in a project so you can use relative paths from your project directory. The code below assumes that in your project directory (where your .rproject file lives) exists a folder that's called Homework, and that in this folder, there's a file called donald_tweets.csv.
+
+To render this document, make sure to put the relative file path into the here::here() function, which keeps working directories consistent:
+
+```{r}
+tweets <- read_csv("donald_tweets.csv")
+
+# lapply(tweets, class)
+# unique(tweets$device)
+```
+
+# Descriptive overview
+
+Provide some descriptive overview over the data here (e.g. using skimr, but also perhaps some helpful plots regarding the distribution of variables). Some questions to answer:
+
+```{r}
+skimr::skim(tweets) %>% DT::datatable()
+```
+
+-   How many tweets do we have?
+
+    ```{r}
+    nrow(tweets)
+    ```
+
+-   What time range do tweets fall in?
+
+    ```{r}
+    min(tweets$date)
+    max(tweets$date)
+    ```
+
+-   What is the development of number of tweets over time?
+
+    ```{r}
+    inauguration_date <- as.Date("2016-11-09")
+
+    # Plot Version 1
+    tweets %>%
+      mutate(date = as.Date(date)) %>% 
+      group_by(date) %>% 
+      summarize(num_tweets = n()) %>% 
+      
+      ggplot(aes(x = date, y = num_tweets)) +
+      geom_line(color="dodgerblue") +
+      geom_vline(xintercept = inauguration_date, 
+                 linetype = "dashed", 
+                 color = "skyblue") + 
+      geom_text(x = inauguration_date, y = Inf,
+                label = "Inauguration",
+                vjust = 1.5, hjust = -0.1, color = "skyblue") +
+      labs(
+        title = "Development of Number of Trump's Tweets Over Time",
+        x = "Date",
+        y = "Number of Tweets") +
+      theme_minimal()
+
+    # Plot Version 2
+    tweets %>% 
+      mutate(year = year(date) %>% as.factor()) %>% 
+      group_by(year) %>% 
+      summarise(count_tweet = n()) %>%
+      
+      ggplot(aes(year, count_tweet)) +
+      geom_text(aes(label=count_tweet), vjust=-0.5, size = 3.5) +
+      geom_bar(stat = "identity", fill= "grey") +
+      labs(
+        title = "Development of Number of Trump's Tweets Over Each Year",
+        x = "Year",
+        y = "Number of Tweets") +
+      theme_minimal() +
+      scale_y_continuous(limits = c(0, 13000), 
+                         breaks = seq(0, 13000, by = 1000), 
+                         expand = c(0, 0)) 
+    ```
+
+-   What is the development of likes / shares over time?
+
+    ```{r}
+    inauguration_date <- as.Date("2016-11-09")
+
+    # Plot no. of Likes over time
+    tweets %>%
+      mutate(date = as.Date(date)) %>% 
+      group_by(date) %>%
+      summarize(total_likes = sum(favorites)) %>%
+      
+      ggplot(aes(x = date, y = total_likes)) +
+      geom_line(color="dodgerblue") +
+      geom_vline(xintercept = inauguration_date, 
+                 linetype = "dashed", 
+                 color = "skyblue") + 
+      geom_text(x = inauguration_date, y = Inf,
+                label = "Inauguration",
+                vjust = 1.5, hjust = -0.25, color = "skyblue") +
+      labs(
+        title = "Development of Likes Over Time",
+        x = "Date",
+        y = "Number of Likes (per day)"
+      ) +
+      scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+      theme_minimal()
+
+    # Plot no. of Retweets over time
+    tweets %>%
+      mutate(date = as.Date(date)) %>% 
+      group_by(date) %>%
+      summarize(total_retweets = sum(retweets)) %>% 
+      
+      ggplot(aes(x = date, y = total_retweets)) +
+      geom_line(color="dodgerblue") +
+      geom_vline(xintercept = inauguration_date, 
+                 linetype = "dashed", 
+                 color = "skyblue") + 
+      geom_text(x = inauguration_date, y = Inf,
+                label = "Inauguration",
+                vjust = 1.5, hjust = -0.1, color = "skyblue") +
+      labs(
+        title = "Development of Retweets Over Time",
+        x = "Date",
+        y = "Number of Retweets (per day)"
+      ) +
+      scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+      theme_minimal()
+
+
+    # Mean Likes & Retweets per Year
+
+    tweets %>% 
+      filter(favorites > 0) %>% # remove tweets eith zero likes - retweets?
+      mutate(year = year(date) %>%  as.factor()) %>% 
+      group_by(year) %>% 
+      summarise(mean_likes = mean(favorites),
+                mean_retweet = mean(retweets)) %>% 
+      pivot_longer(cols = !year, names_to = "popular", values_to = "mean") %>% 
+
+      ggplot(aes(year, mean, color = popular, group=popular)) +
+      geom_line(size=1.5) +
+      scale_color_viridis_d(labels = c("Likes", "Retweet")) + 
+      theme_light() +
+      theme(panel.grid.major.x = element_blank(),
+            plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+            axis.title = element_text(face="bold", size = 12),
+            legend.position = "bottom",
+            text = element_text(size = 14, family = "serif")) + 
+      labs(title = "Mean likes and retweet by year",
+           y = "Mean",
+           x = "Year", 
+           color = " ")
+    ```
+
+# Preprocess
+
+Preprocess the data here (e.g. tokenization, stopword removal, ...).
+
+```{r}
+tidy_tweets <- tweets %>% 
+  tidytext::unnest_tokens(sentence, text, token = "sentences") %>% 
+  group_by(id) %>% 
+  mutate(sentence_id = row_number()) %>% 
+  ungroup() %>% 
+  tidytext::unnest_tokens(word, sentence, token = "words", drop = FALSE) %>%
+  anti_join(tidytext::get_stopwords())
+```
+
+# Analyse & Plot
+
+```{r Top_Used_Words}
+tidy_tweets %>% 
+  count(word, sort = TRUE) %>%
+  head(50) %>% 
+  DT::datatable()
+```
+
+```{r Dictionaries}
+afinn_dic <- tidytext::get_sentiments(lexicon = "afinn")
+nrc_dic <- tidytext::get_sentiments(lexicon = "nrc")
+bing_dic <- tidytext::get_sentiments(lexicon = "bing")
+data_dictionary_LSD2015_pos_neg <- data_dictionary_LSD2015[1:2]
+#moral_dic <- tidytext::get_sentiments(lexicon = "moral")
+```
+
+```{r Sentiment_Analysis_kwic}
+# Look at words/phrases that are used 'pre' and 'post' of the word "war", allow you look at the 'sentiments' surrounding (pre/post) the word.
+
+tweets_corpus <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  quanteda::corpus()
+
+# Define a function to plot sentiment over time for specific keywords
+plot_sentiment_over_time <- function(keywords, group_name, 
+                                     tweets_corpus, 
+                                     data_dictionary_LSD2015_pos_neg) {
+  toks_keywords <- tweets_corpus %>%
+    tokens(remove_punct = TRUE) %>% 
+    tokens_keep(pattern = phrase(keywords), 
+                window = 10) %>% 
+    tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+    dfm() %>% 
+    dfm_group(groups = date)
+  dat_smooth <- ksmooth(x = toks_keywords$date, 
+                        y = toks_keywords[,"positive"] - toks_keywords[,"negative"],
+                        kernel = "normal", bandwidth = 30)
+  
+  plot(dat_smooth$x, dat_smooth$y, type = "l", # Create the plot
+       ylab = "Sentiment", xlab = "", 
+       main = paste("Sentiment for", group_name, "Over Time"))
+  abline(h = 0, lty = 2) }
+
+# Sentiments about Republican Leaders
+republicans <- c("Pence", "Romney", "Ted", "Cruz")
+plot_sentiment_over_time(republicans, "Republican Leaders",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Democrat Leaders
+democrats <- c("Biden", "Obama", "Clinton", "Bernie")
+plot_sentiment_over_time(democrats, "Democrat Leaders",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about The Economy
+economy <- c("Job", "Market", "Tax", "Employment")
+plot_sentiment_over_time(economy, "The Economy",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about News Media
+news_media <- c("CNN", "Mainstream", "Media", "New York")
+plot_sentiment_over_time(news_media, "News Media",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about China
+China <- c("China", "Xi", "Jinping")
+plot_sentiment_over_time(China, "China",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Military
+Military <- c("Military", "Security", "Veterans")
+plot_sentiment_over_time(Military, "Military",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Social_Issues
+Social_Issues <- c("Abortion", "Gay", "LGBTQ")
+plot_sentiment_over_time(Social_Issues, "Social Issues",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Immigrants
+Immigrants <- c("Immigrants", "Refugee", "Refugees")
+plot_sentiment_over_time(Immigrants, "Immigrants",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+
+# Sentiments about Environment
+Environment <- c("Climate", "Environment")
+plot_sentiment_over_time(Environment, "Environment",
+                         tweets_corpus, data_dictionary_LSD2015_pos_neg)
+```
+
+```{r Sentiment_Political_Parties}
+# Sentiments about Democrats + Republicans
+democrats <- c("Democrats")
+
+republicans <- c("Republicans")
+
+toks_dem <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(democrats), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_rep <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(republicans), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_dem <- convert(toks_dem, to = "data.frame")
+toks_rep <- convert(toks_rep, to = "data.frame")
+
+toks_dem <- mutate(toks_dem, sentiment_dem = positive-negative)
+
+toks_rep <- mutate(toks_rep, sentiment_rep = positive-negative)
+
+combined <- left_join(toks_dem, toks_rep, by ="doc_id")
+
+combined %>% 
+  mutate(date = as.Date(doc_id)) %>% 
+  select(date, sentiment_dem, sentiment_rep) %>% 
+  pivot_longer(cols = !date, names_to = "party", values_to = "sentiment") %>% 
+  
+  group_by(date, party) %>% 
+
+ggplot(aes(date, sentiment, color = party, group = party)) + 
+  geom_point() +
+  geom_line() + 
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        axis.title = element_text(face="bold", size = 12),
+        legend.position = "bottom",
+        text = element_text(size = 14, family = "serif")) + 
+  labs(title = "Sentiment toward The 'Republican' and 'Democrat' Party",
+       y = "Sentiment (negative - positive)",
+       x = "Time", 
+       color = " ") +
+  scale_color_discrete(labels = c("Democrats", "Republicans"))
+```
+
+```{r Sentiment_Analysis_afinn}
+# Sentiment of Tweet X Time (afinn_dic)
+tidy_tweets %>%   
+  inner_join(afinn_dic) %>% 
+  mutate(date = as.Date(date)) %>%
+  group_by(id, date) %>%
+  summarise(sentiment = sum(value)) %>% 
+  
+  ggplot(aes(date, sentiment)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Trump's Erratic Tweet Pattern",
+       subtitle = "Sentiment of Tweets Over Time",
+       x = "Date", y = "Sentiment") +
+  theme_minimal()
+
+# Sentiment of Tweet X Responses (afinn_dic)
+tidy_tweets %>%   
+  inner_join(afinn_dic) %>% 
+  group_by(id) %>%
+  reframe(sentiment = sum(value), retweets, favorites) %>% 
+
+  ggplot(aes(x = sentiment, y = retweets)) +
+  geom_point(aes(y = favorites, color = "Likes"), alpha = 0.5) +
+  geom_point(aes(color = "Retweets"), alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", 
+           color = "darkgrey") + 
+  labs(
+    title = "Relationship Between Trump's Tweet Sentiment and Engagement",
+    x = "Tweet Sentiment",
+    y = "Count",
+    color = "Engagement Type"
+  ) +
+  scale_color_manual(values = c("Retweets" = "blue", "Likes" = "pink")) +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6)) +
+  theme_minimal()
+```
+
+```{r Sentiment_Analysis_nrc}
+
+# NRC Sentiment Categorical Variables:
+# "trust"        "fear"         "negative"     "sadness"      "anger"   "surprise"     "positive"     "disgust"      "joy"          "anticipation"
+
+# Emotions of All Tweets (nrc_dic)
+tidy_tweets %>%
+  inner_join(nrc_dic) %>%
+  group_by(sentiment) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count)) %>% 
+  
+  ggplot(aes(x = reorder(sentiment, -count), y = count)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Emotional Content of Trumps' Tweets (2009-2021)", 
+       x = "Emotion", y = "Count") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Emotions of All Tweets x Time (nrc_dic)
+tidy_tweets %>%
+  inner_join(nrc_dic) %>% 
+  filter(sentiment %in% c("positive", "trust", 
+                          "negative", "anticipation", "joy")) %>%
+  mutate(date = as.Date(date)) %>%
+  mutate(date_by_M = lubridate::floor_date(date, unit = "month")) %>% 
+
+  
+  group_by(date_by_M, sentiment) %>%
+  summarize(count = n()) %>%
+  arrange(date_by_M) %>% 
+
+  ggplot(aes(x = date_by_M, y = count,
+             color = sentiment)) +
+  geom_line() +
+  labs(title = "Emotional Trends of Trump's Tweets",
+       x = "Date",
+       y = "Count",
+       color = "Emotion") +
+  theme_minimal()
+
+```
+
+```{r Complexity_Analysis}
+complexity_df <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  mutate(textstat_readability(text))
+
+complexity_df %>% 
+  filter(Flesch > -500) %>% 
+  
+  ggplot(aes(date, Flesch)) +
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Complexity of Trump's Tweets over Time",
+     x = "Date",
+     y = "Degree of Complexity")
+```
+
+```{r Co-occurrences_Network}
+#Remove punctuation, numbers and stop words
+toks_nopunct <- tokens(tweets_corpus, remove_punct = TRUE)
+dfmat_tweets <- dfm(toks_nopunct)
+dfmat_tweets <- dfm_remove(dfmat_tweets, pattern = c(stopwords("en"), "*-time", "updated-*", "gmt", "bst"))
+dfmat_tweets <- dfm_trim(dfmat_tweets, min_termfreq = 100)
+
+#most frequent words
+topfeatures(dfmat_tweets)
+
+nfeat(dfmat_tweets)
+
+fcmat_tweets <- fcm(dfmat_tweets)
+dim(fcmat_tweets)
+
+
+feat <- names(topfeatures(fcmat_tweets, 50))
+fcmat_tweets_select <- fcm_select(fcmat_tweets, pattern = feat, selection = "keep")
+dim(fcmat_tweets_select)
+
+
+#Plot
+size <- log(colSums(dfm_select(dfmat_tweets, feat, selection = "keep")))
+
+set.seed(144)
+textplot_network(fcmat_tweets_select, min_freq = 0.8, vertex_size = size / max(size) * 3) + ggtitle("Trump's Tweets Co-occurrences Network")
+```
+
+Erratic Sentiment Fluctuations: Trump's tweets exhibit a wide range of sentiment scores, from highly positive to strongly negative, reflecting the dynamic nature of his communication over time."
+
+# Session info
+
+```{r}
+sessionInfo()
+```

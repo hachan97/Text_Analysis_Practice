@@ -1,0 +1,430 @@
+---
+title: "Homework - Week 4"
+format: 
+  html:
+    toc: true
+    self-contained: true
+    code-fold: false
+    code-tools: true
+editor: source
+author: Group 2
+theme: flatly
+execute: 
+  cache: true
+  warning: false
+  message: false
+  fig-width: 9 
+  fig-height: 7
+---
+
+# Homework instructions
+
+1.  Play around with the topic model from the in class demonstration. Change the K, and / or other parameters in the model. Remember to plot the results, and to look at exemplary documents.
+
+2.  Implement a topic model in a data corpus of your choice (ex: Inauguration Speeches, Reddit...etc.) For instance, you could do a topic model
+
+# Setup
+
+load your R packages here
+
+```{r Setup}
+knitr::opts_chunk$set(echo = TRUE)
+p_needed <-
+  c("tidyverse",        # for general data operations
+    "tidytext",         # some helpful functions for tidying text
+    "topicmodels",      # a dependency for the stm package
+    "stm",              # for Topic Modeling
+    "broom",            # for tidying the stm output data
+    "LDAvis"            # for plotting topic models interactively as a shiny app
+    )
+
+packages <- rownames(installed.packages())
+p_to_install <- p_needed[!(p_needed %in% packages)]
+
+if (length(p_to_install) > 0) {
+  install.packages(p_to_install)
+}
+sapply(p_needed, require, character.only = TRUE)
+```
+
+# Further topic modeling of AITA
+
+## Data
+
+Read in the Am I The Asshole data here.
+
+```{r}
+aita <- read_csv(here::here("data/aita_for_class.csv"))
+
+```
+
+## Preprocess
+
+Do your preprocessing here
+
+```{r}
+processed_text <- textProcessor(
+  aita$body,
+  metadata = aita, #
+  language = "english", #
+  lowercase = TRUE, #
+  removenumbers = TRUE, #
+  removepunctuation = TRUE, #
+  removestopwords = TRUE, #
+  onlycharacter = TRUE, #
+  striphtml = TRUE, #
+  stem = TRUE #
+  )
+
+aita_prepped_docs <- prepDocuments(
+  processed_text$documents,
+  processed_text$vocab,
+  processed_text$meta,
+  lower.thresh = 5) # remove words less than <5 times
+```
+
+## Topic modeling
+
+Do your modeling here. Remember to add descriptions of the process, make some plots, ...
+
+\*\*Searching for the number of K\*\*
+
+(Takes to long, but here's how to \\smiley)
+
+```{r searchK}
+# stm_searchK <- searchK(
+#  documents = aita_prepped_docs$documents,
+#  vocab = aita_prepped_docs$vocab,
+#  data = aita_prepped_docs$meta,
+#  K = c(10, 15, 20, 25, 30),
+#  max.em.its = 75,
+#  seed = 1234,
+#  verbose = TRUE,
+# )
+
+# stm_searchK
+```
+
+```{r, results='hide'}
+## Running a topic model
+stm1 <-
+  stm(
+    documents = aita_prepped_docs$documents, #the Document
+    vocab = aita_prepped_docs$vocab,   #set of words used in your documents
+    data = aita_prepped_docs$meta,  #the metadata or structural information
+    K = 15,          # The desired number of Topics, K
+    max.em.its = 75, # Number of Iteration - to train the model
+    seed = 1234,
+    verbose = TRUE
+  )
+```
+
+## Plots
+
+```{r}
+# create a dataframe with the predominant topic for each document
+document_topics <- tidy(stm1, matrix = "gamma") %>% 
+  group_by(document) %>% 
+  filter(gamma == max(gamma)) %>% 
+  ungroup() %>% 
+  arrange(document)
+
+# join this dataframe with the original dataset used as input for the stm model
+# this is the meta data we've put into the stm() function
+aita_classified <- aita_prepped_docs$meta %>% 
+  mutate(document = row_number()) %>% 
+  inner_join(document_topics) %>% 
+  mutate(topic = as.factor(topic))
+```
+
+```{r}
+plot(stm1, type = "summary") # Gives the expected proportion of the total posts that are in each topic.
+```
+
+```{r}
+
+topic_labels <- labelTopics(stm1, n=2)
+print(topic_labels)
+
+topic_labels <- c("Topic 1: joke, laugh", 
+                  "Topic 2: money, pay", 
+                  "Topic 3: roommat, sleep", 
+                  "Topic 4: friend, text",
+                  "Topic 5: wed, birthday",
+                  "Topic 6: pizza, eat",
+                  "Topic 7: church, post",
+                  "Topic 8: mom, brother",
+                  "Topic 9: teacher, class", 
+                  "Topic 10: park, seat",
+                  "Topic 11: dog, cat",
+                  "Topic 12: boss, compani",
+                  "Topic 13: shes, relationship",
+                  "Topic 14: babi, wife", 
+                  "Topic 15: aunt, uncl")
+
+aita_classified$topic_label <- topic_labels[aita_classified$topic]
+```
+
+Now, we can for instance plot how different topics are associated with being the asshole..
+
+```{r}
+aita_classified %>% 
+  ggplot(aes(topic_label, is_asshole)) +
+  stat_summary() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  labs(title = "Probability of being the asshole",
+       x = "Topic",                      
+       y = "Is Asshole")                 
+
+
+# Only top 5 topics: 
+top5topics <- aita_classified %>%   
+  group_by(topic_label) %>%
+  summarize(count = n()) %>%
+  arrange(desc(count)) %>% 
+  slice(1:5) 
+
+aita_classified %>% 
+  filter(topic_label %in% top5topics$topic_label) %>%
+  ggplot(aes(topic_label, is_asshole)) +
+  stat_summary() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  labs(title = "Probability of being the asshole",
+       x = "Topic",                      
+       y = "Is Asshole") 
+```
+
+Or we can plot the association with number of comments and topics
+
+```{r}
+aita_classified %>% 
+  ggplot(aes(topic_label, num_comments)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  stat_summary() +
+  labs(title = "Number of comments by each topic",
+       x = "Topic",                      
+       y = "Number of comments")  
+
+aita_classified %>% 
+  filter(topic_label %in% top5topics$topic_label) %>%
+  ggplot(aes(topic_label, num_comments)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) +
+  stat_summary() +
+  labs(title = "Number of comments by each topic",
+       x = "Topic",                      
+       y = "Number of comments")  
+
+```
+
+Or we can plot the development of topics over time...
+
+```{r}
+aita_classified %>% 
+  mutate(year_month = floor_date(timestamp, "month")) %>% 
+  group_by(year_month) %>% 
+  count(topic_label) %>% 
+  ggplot(aes(year_month, n, group = topic_label)) +
+  geom_line() +
+  facet_wrap(~topic_label) + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) 
+
+aita_classified %>% 
+  mutate(year_month = floor_date(timestamp, "month")) %>% 
+  group_by(year_month) %>% 
+  count(topic_label) %>% 
+  filter(topic_label %in% top5topics$topic_label) %>%
+  ggplot(aes(year_month, n, group = topic_label)) +
+  geom_line() +
+  facet_wrap(~topic_label) + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8)) 
+```
+
+# Topic modeling of Inauguration Speeches
+
+Do your topic modelling of an extra dataset (e.g. the quanteda speeches corpus from week 3).
+
+## Data
+
+```{r}
+speeches <- quanteda::data_corpus_inaugural
+
+tidy_speeches <- speeches %>% 
+  quanteda::convert(to = "data.frame")
+```
+
+## Preprocessing
+
+```{r}
+custom_stopwords <- c("will", "america", "people", "government", "nation")
+
+processed_speeches <- textProcessor(
+  tidy_speeches$text,
+  metadata = tidy_speeches, #
+  language = "english", #
+  lowercase = TRUE, #
+  removenumbers = TRUE, #
+  removepunctuation = TRUE, #
+  removestopwords = TRUE, #
+  onlycharacter = TRUE, #
+  striphtml = TRUE, #
+  stem = TRUE #
+  )
+
+speeches_prepped_docs <- prepDocuments(
+  processed_speeches$documents,
+  processed_speeches$vocab,
+  processed_speeches$meta,
+  lower.thresh = 5) # remove words less than <5 times 
+```
+
+## Topic Modeling
+
+```{r}
+#stm_optimalK <- searchK(
+#  documents = speeches_prepped_docs$documents,
+#  vocab = speeches_prepped_docs$vocab,
+#  data = speeches_prepped_docs$meta,
+#  K = c(2, 5, 10, 15, 20, 25),
+#  max.em.its = 75,
+#  seed = 1234,
+#  verbose = TRUE,
+#  cores = 1)
+
+#plot(stm_optimalK)
+```
+
+```{r, results='hide'}
+stm_speeches <-
+  stm(
+    documents = speeches_prepped_docs$documents, #the Document
+    vocab = speeches_prepped_docs$vocab,   #set of words used in your documents
+    data = speeches_prepped_docs$meta,  #the metadata or structural information
+    K = 5,          # The desired number of Topics, K
+    max.em.its = 75, # Number of Iteration - to train the model
+    seed = 1234,
+    verbose = TRUE
+  )
+
+labelTopics(stm_speeches)
+
+plot(stm_speeches, type = "summary")
+plot(stm_speeches, type = "hist", topics=1:5)
+
+plot(stm_speeches, type="perspectives", topics = c(1,5))
+```
+
+## Plots
+
+```{r}
+labelTopics(stm_speeches, n=5)
+
+topic_labels_speech <- data.frame(topic = c(1, 2, 3, 4, 5),  
+                                  topic_label = c(
+                                    "Topic 1: constitut, grant, exercis",
+                                    "Topic 2: america, today, centuri",
+                                    "Topic 3: happi, foreign, improv",
+                                    "Topic 4: enforc, busi, congress",
+                                    "Topic 5: econom, life, task"))
+```
+
+```{r Topic_Loadings}
+
+speech_topics <- tidy(stm_speeches, matrix = "gamma") %>% 
+  group_by(document) %>% 
+  filter(gamma == max(gamma)) %>% 
+  ungroup() %>% 
+  arrange(document)
+
+speech_classified <- speeches_prepped_docs$meta %>% 
+  mutate(document = row_number()) %>% 
+  inner_join(speech_topics) %>% 
+  left_join(topic_labels_speech, by = "topic") %>% 
+  mutate(topic = as.factor(topic))
+
+```
+
+```{r}
+# PLOT 1
+speech_classified$Year <- as.numeric(speech_classified$Year) #set as numeric
+century_breaks <- c(1789, 1800, 1900, 2000, 2100)  # Define the breakpoints
+
+speech_classified$century_group <- cut(speech_classified$Year, 
+                                       breaks = century_breaks, 
+                                       labels = c("18th", "19th", "20th", "21st"),
+                                       right = FALSE)
+
+speech_classified %>%
+  group_by(century_group, topic, topic_label) %>%
+  summarise(topic_count = n()) %>%
+  arrange(century_group, desc(topic_count)) %>%
+  group_by(century_group) %>%
+  slice(1) %>%  # Select the most common topic for each century group
+  
+  ggplot(aes(x = century_group, y = topic_count, fill = topic_label)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Most Common Topics by Century",
+    x = "Century",
+    y = "Frequency",
+    fill = "Dominant Topic"
+  ) +
+  theme_minimal()
+
+# PLOT 2
+speech_classified %>%
+  group_by(Party, topic, topic_label) %>%
+  summarise(topic_count = n()) %>%
+  arrange(Party, desc(topic_count)) %>%
+  group_by(Party) %>%
+  slice(1) %>%  # Select the most common topic for each Party
+  
+  ggplot(aes(x = Party, y = topic_count, fill = topic_label)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Most Common Topics by Party",
+    x = "Party",
+    y = "Frequency",
+    fill = "Dominant Topic"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=8))
+
+
+# PLOT 3
+presidents_to_filter <- c("Abraham", "George", "Franklin", "Theodore", "Dwight", 
+                          "Harry", "Thomas", "John", "Ronald", "Barack", "Donald")
+
+speech_classified %>%
+  filter(str_detect(FirstName, paste(presidents_to_filter, collapse = "|"))) %>%
+  group_by(FirstName, topic, topic_label) %>%
+  summarise(topic_count = n()) %>%
+  arrange(FirstName, desc(topic_count)) %>%
+  group_by(FirstName) %>%
+  slice(1) %>%  # Select the most common topic for each President
+  
+  ggplot(aes(x = factor(FirstName, levels = unique(FirstName)), 
+             y = topic_count, 
+             fill = topic_label)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Most Common Topics by President",
+    x = "President",
+    y = "Frequency",
+    fill = "Dominant Topic") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1,size=8))
+
+
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

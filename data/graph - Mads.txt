@@ -1,0 +1,63 @@
+tweets <- read_csv(here::here("Homework/donald_tweets.csv"))
+
+
+tweets_corpus <- tweets %>% 
+  mutate(date = as.Date(date)) %>%
+  quanteda::corpus()
+
+data_dictionary_LSD2015_pos_neg <- data_dictionary_LSD2015[1:2]
+
+# Sentiments about democrats
+democrats <- c("Democrats")
+
+republicans <- c("Republicans")
+
+toks_dem <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(democrats), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_rep <- tweets_corpus %>%
+  tokens(remove_punct = TRUE) %>% 
+  tokens_keep(pattern = phrase(republicans), 
+              window = 10) %>% 
+  tokens_lookup(dictionary = data_dictionary_LSD2015_pos_neg) %>% 
+  dfm() %>% 
+  dfm_group(groups = date)
+
+toks_dem <- convert(toks_dem, to = "data.frame")
+toks_rep <- convert(toks_rep, to = "data.frame")
+
+toks_dem <- mutate(toks_dem, sentiment_dem = positive-negative)
+
+toks_rep <- mutate(toks_rep, sentiment_rep = positive-negative)
+
+
+
+combined <- left_join(toks_dem, toks_rep, by ="doc_id")
+
+
+combined %>% 
+  mutate(date = as.Date(doc_id)) %>% 
+  select(date, sentiment_dem, sentiment_rep) %>% 
+  pivot_longer(cols = !date, names_to = "party", values_to = "sentiment") %>% 
+  
+  group_by(date, party) %>% 
+
+ggplot(aes(date, sentiment, color = party, group = party)) + 
+  geom_point() +
+  geom_line() + 
+  theme_light() +
+  theme(panel.grid.major.x = element_blank(),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 16),
+        axis.title = element_text(face="bold", size = 12),
+        legend.position = "bottom",
+        text = element_text(size = 14, family = "serif")) + 
+  labs(title = "Sentiment toward 'Republicans' and 'Democrats'",
+       y = "Sentiment (positive - negative)",
+       x = "Time", 
+       color = " ") +
+  scale_color_discrete(labels = c("Democrats", "Republicans"))
